@@ -1,0 +1,93 @@
+import requests
+from decimal import Decimal
+import time
+
+TOKEN_ADDRESS_MAPPING = {
+    "0x3355df6d4c9c3035724fd0e3914de96a5a83aaf4": {"symbol": "USDC", "decimals": 6},
+    "0x0000000000000000000000000000000000000000": {"symbol": "ETH", "decimals": 18},
+    "0x503234f203fc7eb888eec8513210612a43cf6115": {"symbol": "LUSD", "decimals": 18},
+    "0x493257fd37edb34451f62edf8d2a0c418852ba4c": {"symbol": "USDT", "decimals": 6},
+    "0xBBeB516fb02a01611cBBE0453Fe3c580D7281011": {"symbol": "WBTC", "decimals": 8},
+    "0x9929bcac4417a21d7e6fc86f6dae1cc7f27a2e41": {"symbol": "DEXTF", "decimal": 18},
+    "0x76f9AD4EC3981097C3FFc06f8Ec22F8fd4296DCb": {"symbol": "COMBO", "decimal": 18}
+    # Добавьте сюда другие адреса и соответствующие названия токенов и их десятичные разряды
+}
+
+SYMBOL_DISPLAY_MAPPING = {
+    "ETH": "ETH in USD",
+    "USDC": "USDC",
+    "USDT": "USDT",
+    "WBTC": "WBTC",
+    "LUSD": "LUSD",
+    "DEXTF": "DEXTF"
+}
+
+def get_eth_to_usd_exchange_rate():
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("ethereum", {}).get("usd")
+    except requests.exceptions.RequestException as e:
+        print(f"Error getting ETH to USD exchange rate: {e}")
+        return None
+
+# Получаем курс ETH к USD один раз перед выполнением программы
+eth_to_usd_exchange_rate = get_eth_to_usd_exchange_rate()
+
+if eth_to_usd_exchange_rate is None:
+    print("Could not retrieve ETH to USD exchange rate. Skipping USD conversion.")
+else:
+    print(f"ETH to USD exchange rate: {eth_to_usd_exchange_rate}")
+
+def get_all_account_balances(address):
+    time.sleep(0.34)  # Добавляем задержку 0.34 секунды
+
+    url = "https://mainnet.era.zksync.io"
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "zks_getAllAccountBalances",
+        "params": [address]
+    }
+    headers = {"Content-Type": "application/json"}
+    response = requests.post(url, json=payload, headers=headers)
+
+    if response.status_code == 200:
+        result = response.json()
+
+        balances = {
+            SYMBOL_DISPLAY_MAPPING.get(TOKEN_ADDRESS_MAPPING.get(token, {}).get("symbol", token), token): (
+                Decimal(int(value, 16)) / Decimal(10**TOKEN_ADDRESS_MAPPING.get(token, {}).get("decimals", 18))
+                if eth_to_usd_exchange_rate is None or TOKEN_ADDRESS_MAPPING.get(token, {}).get("symbol") != "ETH"
+                else (Decimal(int(value, 16)) / Decimal(10**TOKEN_ADDRESS_MAPPING.get(token, {}).get("decimals", 18))) * Decimal(eth_to_usd_exchange_rate)
+            )
+            for token, value in result.get("result", {}).items()
+        }
+        return balances
+    else:
+        print(f"Error: {response.status_code}")
+        return None
+
+def process_accounts_from_file(input_filename, output_filename):
+    with open(input_filename, 'r') as infile:
+        addresses = infile.readlines()
+
+    with open(output_filename, 'w') as outfile:
+        for idx, address in enumerate(addresses, start=1):
+            address = address.strip()
+            balances = get_all_account_balances(address)
+
+            if balances:
+                outfile.write(f"{idx} account: {address}\n")
+                for token, value in balances.items():
+                    outfile.write(f"{token}: {value:.{TOKEN_ADDRESS_MAPPING.get(token, {}).get('decimals', 18)}f}\n")
+                outfile.write("\n")
+
+# Пример использования:
+input_filename = "input.txt"
+output_filename = "output.txt"
+process_accounts_from_file(input_filename, output_filename)
+
+#этот код показывает балансы и конвертированый ETH в USD
